@@ -15,33 +15,36 @@ export default function OrderList() {
   const token = session?.data?.user.accessToken;
   const userEmail = session?.data?.user.userEmail;
 
-  const [nextGroup, setNextGroup] = useState<number>();
+  const [nextGroup, setNextGroup] = useState();
   const [groupedOrders, setGroupedOrders] = useState<
     Record<string, Record<string, Record<string, OrderListType[]>>>
   >({});
 
   // 데이터 페칭
-  async function fetchOrderList(groupId?: number) {
-    const response = await fetch(
-      `${process.env.BASE_API_URL}/api/v1/orders/user?groupId=${groupId || ''}`,
-      {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          userEmail: userEmail,
-          Authorization: `Bearer ${token}`,
-        },
-      }
-    );
-    const orderList = await response.json();
-    if (orderList.result.nextGroupId !== null) {
+  useEffect(() => {
+    async function fetchOrderList() {
+      const response = await fetch(
+        `${process.env.BASE_API_URL}/api/v1/orders/user?groupId=`,
+        {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            userEmail: userEmail,
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      const orderList = await response.json();
+      console.log(orderList);
       setNextGroup(orderList.result.nextGroupId);
+      const groupedordersList = groupOrders(
+        orderList.result.vendorsOrderSummaryOutResponseDtoList
+      );
+      setGroupedOrders(groupedordersList);
+      console.log('groupedordersList', groupedordersList);
     }
-    const newGroupedOrders = groupOrders(
-      orderList.result.vendorsOrderSummaryOutResponseDtoList
-    );
-    setGroupedOrders((prev) => ({ ...prev, ...newGroupedOrders }));
-  }
+    fetchOrderList();
+  }, []);
 
   /** 형식 변환 */
   const groupOrders = (orders: OrderListType[]) => {
@@ -71,25 +74,47 @@ export default function OrderList() {
     return groupedByDate;
   };
 
-  useEffect(() => {
-    fetchOrderList();
-  }, []);
-
   // 스크롤 위치에 따라 추가적인 페칭을 진행
+  async function fetchNextOrderList() {
+    if (nextGroup === null) {
+      return;
+    }
+    const response = await fetch(
+      `${process.env.BASE_API_URL}/api/v1/orders/user?groupId=${nextGroup}`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          userEmail: userEmail,
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+    const orderList = await response.json();
+    console.log(orderList);
+    setNextGroup(orderList.result.nextGroupId);
+    const nextGroupedOrders = groupOrders(
+      orderList.result.vendorsOrderSummaryOutResponseDtoList
+    );
+    setGroupedOrders({ ...groupedOrders, ...nextGroupedOrders });
+  }
+
+  // 스크롤 위치를 감지해서 페칭 진행
   useEffect(() => {
     const handleScroll = async () => {
-      if (
-        window.innerHeight + window.scrollY >=
-          document.body.offsetHeight - 10 &&
-        nextGroup
-      ) {
-        await fetchOrderList(nextGroup);
+      // 스크롤 위치가 페이지 하단에 도달했는지 확인
+      if (window.innerHeight + window.scrollY >= document.body.offsetHeight) {
+        await fetchNextOrderList(); // 페이지 하단에 도달했을 때 추가 데이터 페칭
       }
     };
 
     window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, [nextGroup]);
+
+    // 컴포넌트가 언마운트될 때 이벤트 리스너 제거
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+    };
+  }, []);
 
   return (
     <>
